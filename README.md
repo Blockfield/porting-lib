@@ -12,10 +12,10 @@ Unmodified JARs live in Releases; no mod binaries are committed. This mirror doe
 mkdir -p release-notes rn
 gh api repos/Blockfield/blockfield-client/contents/scripts/release-notes-tool.py \
   -H 'Accept: application/vnd.github.raw' > rn/release-notes-tool.py
-python3 rn/release-notes-tool.py skeleton --repository Blockfield/porting-lib --version <тег> \
+just python rn/release-notes-tool.py skeleton --repository Blockfield/porting-lib --version <тег> \
   --previous-version <прошлый тег> --kind resource --date YYYY-MM-DD > release-notes/<тег>.md
 # заполните разделы по коммитам и изменениям рецепта; чего не знаете — отметьте в «Источниках»
-python3 rn/release-notes-tool.py check release-notes/<тег>.md \
+just python rn/release-notes-tool.py check release-notes/<тег>.md \
   --repository Blockfield/porting-lib --version <тег> --kind resource
 cp release-notes/<тег>.md rn/release-notes.md
 gh release create <тег> <артефакты> SHA256SUMS rn/release-notes.md \
@@ -23,3 +23,15 @@ gh release create <тег> <артефакты> SHA256SUMS rn/release-notes.md \
 ```
 
 Если `check` выводит ошибки, релиз не публикуйте. После выпуска обновите пин в клиенте/сервере; их релизные описания подтянут этот файл в раздел «Обновлённые компоненты».
+
+## Developer checks
+
+Install Python 3.12+, Node.js 22 and Just 1.57.0 on Linux or Windows. Quality tools stay in the project cache.
+
+```sh
+just setup
+just check
+just format
+```
+
+`just --list` lists supported build and application commands.
