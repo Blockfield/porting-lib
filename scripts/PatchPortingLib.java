@@ -8,6 +8,7 @@ import org.objectweb.asm.tree.InsnNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.TypeInsnNode;
+import org.objectweb.asm.tree.VarInsnNode;
 
 /**
  * Пустой статический реестр сериализаторов глобальных модификаторов лута: ванила в
@@ -93,10 +94,10 @@ public final class PatchPortingLib {
                             Opcodes.INVOKESPECIAL,
                             SIMPLE,
                             "<init>",
-                            "(L" + REGISTRY_KEY + ";)L" + LIFECYCLE + ";Z)V",
+                            "(L" + REGISTRY_KEY + ";L" + LIFECYCLE + ";Z)V",
                             false);
             clinit.instructions.set(insn, detachedInit);
-            clinit.instructions.insertBefore(detachedInit, new InsnNode(Opcodes.ICONST_0));
+            clinit.instructions.set(created, new TypeInsnNode(Opcodes.NEW, SIMPLE));
             clinit.instructions.insertBefore(
                     detachedInit,
                     new MethodInsnNode(
@@ -105,6 +106,7 @@ public final class PatchPortingLib {
                             "stable",
                             "()L" + LIFECYCLE + ";",
                             false));
+            clinit.instructions.insertBefore(detachedInit, new InsnNode(Opcodes.ICONST_0));
             clinit.instructions.remove(build);
             changed++;
         }
@@ -136,27 +138,35 @@ public final class PatchPortingLib {
     private static void verify(byte[] patched) {
         ClassNode type = new ClassNode();
         new ClassReader(patched).accept(type, 0);
-        int builderRefs = 0, detachedInits = 0;
+        String initDesc = "(L" + REGISTRY_KEY + ";L" + LIFECYCLE + ";Z)V";
+        int builderRefs = 0, builderNews = 0, detachedInits = 0;
         for (MethodNode method : type.methods) {
             for (AbstractInsnNode insn : method.instructions) {
                 if (insn instanceof MethodInsnNode call) {
                     if (call.owner.equals(BUILDER_OWNER)) builderRefs++;
-                    if (call.owner.equals(SIMPLE) && call.name.equals("<init>")) {
+                    if (call.owner.equals(SIMPLE)
+                            && call.name.equals("<init>")
+                            && call.desc.equals(initDesc)) {
                         detachedInits++;
                     }
                 }
+                if (insn instanceof TypeInsnNode created && created.desc.equals(BUILDER_OWNER)) {
+                    builderNews++;
+                }
             }
         }
-        if (builderRefs != 0 || detachedInits != 1) {
+        if (builderRefs != 0 || builderNews != 0 || detachedInits != 1) {
             throw new IllegalStateException(
                     "post-patch shape wrong: builderRefs="
                             + builderRefs
+                            + " builderNews="
+                            + builderNews
                             + " detachedInits="
                             + detachedInits);
         }
     }
 
-    private static void selfTest() {
+    private static void selfTest() throws Exception {
         ClassNode type = new ClassNode();
         type.version = Opcodes.V21;
         type.access = Opcodes.ACC_PUBLIC;
@@ -171,7 +181,7 @@ public final class PatchPortingLib {
                         null));
         type.fields.add(
                 new org.objectweb.asm.tree.FieldNode(
-                        Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC,
+                        Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
                         FIELD,
                         "L" + REGISTRY + ";",
                         null,
@@ -216,6 +226,87 @@ public final class PatchPortingLib {
             throw new AssertionError("duplicate loot patch accepted");
         } catch (IllegalStateException expected) {
         }
+        loadTest(patched);
         System.out.println("PortingLib PASS: loot serializers detached; drift guards");
+    }
+
+    private static void loadTest(byte[] patched) throws Exception {
+        java.util.Map<String, byte[]> stubs = new java.util.HashMap<>();
+        stubs.put(REGISTRY_KEY, stubClass(REGISTRY_KEY, "java/lang/Object", null));
+        stubs.put(LIFECYCLE, stubClass(LIFECYCLE, "java/lang/Object", "stable"));
+        stubs.put(REGISTRY, stubClass(REGISTRY, "java/lang/Object", null));
+        stubs.put(
+                SIMPLE,
+                stubInit(SIMPLE, REGISTRY, "(L" + REGISTRY_KEY + ";L" + LIFECYCLE + ";Z)V"));
+        ClassLoader loader =
+                new ClassLoader(PatchPortingLib.class.getClassLoader()) {
+                    @Override
+                    protected Class<?> findClass(String name) throws ClassNotFoundException {
+                        String internal = name.replace('.', '/');
+                        byte[] bytes = internal.equals(TARGET) ? patched : stubs.get(internal);
+                        if (bytes == null) throw new ClassNotFoundException(name);
+                        return defineClass(name, bytes, 0, bytes.length);
+                    }
+                };
+        Class<?> loot = Class.forName(TARGET.replace('/', '.'), true, loader);
+        Object registry = loot.getField(FIELD).get(null);
+        Class<?> simple = Class.forName(SIMPLE.replace('/', '.'), false, loader);
+        if (!simple.isInstance(registry)) {
+            throw new AssertionError("field is not a detached SimpleRegistry");
+        }
+    }
+
+    private static byte[] stubClass(String name, String superName, String factory) {
+        ClassNode type = new ClassNode();
+        type.version = Opcodes.V21;
+        type.access = Opcodes.ACC_PUBLIC;
+        type.name = name;
+        type.superName = superName;
+        type.methods.add(defaultConstructor(superName));
+        if (factory != null) {
+            MethodNode make =
+                    new MethodNode(
+                            Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                            factory,
+                            "()L" + name + ";",
+                            null,
+                            null);
+            make.instructions.add(new TypeInsnNode(Opcodes.NEW, name));
+            make.instructions.add(new InsnNode(Opcodes.DUP));
+            make.instructions.add(
+                    new MethodInsnNode(Opcodes.INVOKESPECIAL, name, "<init>", "()V", false));
+            make.instructions.add(new InsnNode(Opcodes.ARETURN));
+            type.methods.add(make);
+        }
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        type.accept(writer);
+        return writer.toByteArray();
+    }
+
+    private static byte[] stubInit(String name, String superName, String desc) {
+        ClassNode type = new ClassNode();
+        type.version = Opcodes.V21;
+        type.access = Opcodes.ACC_PUBLIC;
+        type.name = name;
+        type.superName = superName;
+        type.methods.add(defaultConstructor(superName));
+        MethodNode init = new MethodNode(Opcodes.ACC_PUBLIC, "<init>", desc, null, null);
+        init.instructions.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        init.instructions.add(
+                new MethodInsnNode(Opcodes.INVOKESPECIAL, superName, "<init>", "()V", false));
+        init.instructions.add(new InsnNode(Opcodes.RETURN));
+        type.methods.add(init);
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        type.accept(writer);
+        return writer.toByteArray();
+    }
+
+    private static MethodNode defaultConstructor(String superName) {
+        MethodNode init = new MethodNode(Opcodes.ACC_PUBLIC, "<init>", "()V", null, null);
+        init.instructions.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        init.instructions.add(
+                new MethodInsnNode(Opcodes.INVOKESPECIAL, superName, "<init>", "()V", false));
+        init.instructions.add(new InsnNode(Opcodes.RETURN));
+        return init;
     }
 }
