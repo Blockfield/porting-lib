@@ -38,6 +38,11 @@ check *args:
     sys.argv = ["scripts/quality.py", "check", *sys.argv[1:]]
     runpy.run_path("scripts/quality.py", run_name="__main__")
 
+build *args:
+    import runpy, sys
+    sys.argv = ["scripts/quality.py", "build", *sys.argv[1:]]
+    runpy.run_path("scripts/quality.py", run_name="__main__")
+
 compile-check *args:
     import runpy, sys
     sys.argv = ["scripts/quality.py", "compile", *sys.argv[1:]]
