@@ -57,6 +57,21 @@ public final class PatchPortingLib {
                         .filter(m -> m.name.equals("<clinit>"))
                         .findFirst()
                         .orElseThrow(() -> new IllegalStateException("no <clinit>"));
+        if (!clinit.tryCatchBlocks.isEmpty()
+                || java.util.Arrays.stream(clinit.instructions.toArray())
+                        .anyMatch(
+                                i ->
+                                        i.getOpcode() == Opcodes.JSR
+                                                || i instanceof org.objectweb.asm.tree.JumpInsnNode
+                                                || i
+                                                        instanceof
+                                                        org.objectweb.asm.tree.TableSwitchInsnNode
+                                                || i
+                                                        instanceof
+                                                        org.objectweb.asm.tree
+                                                                .LookupSwitchInsnNode)) {
+            throw new IllegalStateException("<clinit> has branches: frames unsafe");
+        }
         int changed = 0;
         for (AbstractInsnNode insn : clinit.instructions.toArray()) {
             if (!(insn instanceof MethodInsnNode call)
