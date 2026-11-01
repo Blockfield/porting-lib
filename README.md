@@ -18,6 +18,20 @@ Unmodified JARs live in Releases; no mod binaries are committed. This mirror doe
 Публикуйте новый артефакт с контрольными суммами и описанием; старые релизы
 не перезаписывайте. После выпуска обновите соответствующие пины сборки.
 
+## Патч loot
+
+`porting_lib_loot` собирается скриптом `scripts/patch.py` (`just build`):
+вход -- опубликованный релиз этого же репозитория (неизменённый апстрим,
+проверяется по SHA512 из `SHA256SUMS`), выход -- `files/mods/*-bf1.jar`, где
+пустой реестр `porting_lib:global_loot_modifier_serializers` отвязан от
+корневой карты (иначе ванила пишет ERROR на старте). Игровой контент не
+меняется -- сборка сверяет все записи с входом. `BUILD-SHA256SUMS` описывает
+каноническую локальную сборку.
+
+Вход скачивается через GitHub API (зеркало приватное): нужен `GITHUB_TOKEN`
+(в CI есть всегда, локально -- `export GITHUB_TOKEN=$(gh auth token)`).
+Уже лежащий `files/mods/<upstream>.jar` используется без сети.
+
 ## Developer checks
 
 Install Python 3.12+, Node.js 22 and Just 1.57.0 on Linux or Windows. Quality tools stay in the project cache.
