@@ -43,7 +43,7 @@ jobs:
     # a verdict on an older SHA) skips `check`, so the gate fails closed.
     # Always exits 0: denial is expressed through the outputs, and the bot's
     # own `bot-review` commit status blocks merge.
-    runs-on: ubuntu-24.04
+    runs-on: tenki-standard-autoscale
     timeout-minutes: 5
     if: github.event_name == 'pull_request_review'
     outputs:
